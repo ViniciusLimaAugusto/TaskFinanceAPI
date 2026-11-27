@@ -1,6 +1,46 @@
-@TaskFinanceAPI_HostAddress = http://localhost:5010
+@baseUrl = http://localhost:5010
 
-GET {{TaskFinanceAPI_HostAddress}}/weatherforecast/
+### Create a user
+# @name createUser
+POST {{baseUrl}}/api/Usuarios
+Content-Type: application/json
+
+{
+  "nome": "Alex Taylor",
+  "saldo": 50.00
+}
+
+### Create a task using the ID from the preceding response
+# @name createTask
+POST {{baseUrl}}/api/Tarefas
+Content-Type: application/json
+
+{
+  "nome": "Review budget",
+  "descricao": "Review the example monthly budget",
+  "valor": 0,
+  "idUsuario": {{createUser.response.body.$.id}},
+  "status": 0
+}
+
+### Complete the task
+PUT {{baseUrl}}/api/Tarefas/{{createTask.response.body.$.id}}
+Content-Type: application/json
+
+{
+  "nome": "Review budget",
+  "descricao": "The example budget has been reviewed",
+  "valor": 0,
+  "idUsuario": {{createUser.response.body.$.id}},
+  "status": 1
+}
+
+### Get a user and their tasks
+GET {{baseUrl}}/api/Usuarios/{{createUser.response.body.$.id}}
 Accept: application/json
 
-###
+### Delete the task
+DELETE {{baseUrl}}/api/Tarefas/{{createTask.response.body.$.id}}
+
+### Delete the user
+DELETE {{baseUrl}}/api/Usuarios/{{createUser.response.body.$.id}}

@@ -1,130 +1,69 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TaskFinanceAPI.Data;
 using TaskFinanceAPI.DTOs;
-using TaskFinanceAPI.Models;
+using TaskFinanceAPI.Services;
 
-namespace TaskFinanceAPI.Controllers
+namespace TaskFinanceAPI.Controllers;
+
+[ApiController]
+[Route("api/Tarefas")]
+public class TarefasController(AppDbContext database, TaskService tasks) : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class TarefasController : ControllerBase
+    [HttpGet]
+    public async Task<ActionResult<List<TaskResponse>>> GetTasks(CancellationToken cancellationToken) =>
+        await tasks.Query().ToListAsync(cancellationToken);
+
+    [HttpGet("{id:int}")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TaskResponse>> GetTask(int id, CancellationToken cancellationToken)
     {
-        private readonly AppDbContext _context;
-
-        public TarefasController(AppDbContext context)
-        {
-            _context = context;
-        }
-
-        [HttpGet]
-        public ActionResult<IEnumerable<Tarefa>> GetTarefas()
-        {
-            return _context.Tarefas.Include(t => t.Usuario).ToList();
-        }
-
-        [HttpGet("{id}")]
-        public ActionResult<Tarefa> GetTarefa(int id)
-        {
-            var tarefa = _context.Tarefas.Find(id);
-            if (tarefa == null)
-            {
-                return NotFound();
-            }
-
-            return tarefa;
-
-        }
-
-        [HttpPost]
-        public ActionResult<Tarefa> PostTarefa([FromBody] TarefaDTO tarefaDto)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var usuario = _context.Usuarios.Find(tarefaDto.IdUsuario);
-
-            if (usuario == null) { return NotFound(new { Message = "Usuario não encontrado" }); }
-
-            var tarefa = new Tarefa
-            {
-                Nome = tarefaDto.Nome,
-                Descricao = tarefaDto.Descricao,
-                Valor = tarefaDto.Valor,
-                Status = tarefaDto.Status,
-                IdUsuario = tarefaDto.IdUsuario,
-            };
-
-            _context.Tarefas.Add(tarefa);
-            try
-            {
-                _context.SaveChanges();
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { Message = "Erro ao salvar a tarefa", Detalhes = ex.Message });
-            }
-
-
-            return CreatedAtAction(nameof(GetTarefa), new { id = tarefa.Id }, tarefa);
-        }
-
-        [HttpPut("{id}")]
-        public IActionResult PutTarefa(int id, [FromBody] TarefaDTO tarefaDto)
-        {
-
-            if (tarefaDto == null)
-            {
-                return BadRequest();
-            }
-
-            var tarefaExistente = _context.Tarefas.Find(id);
-
-            if (tarefaExistente == null)
-            {
-                return NotFound();
-            }
-
-            tarefaExistente.Nome = tarefaDto.Nome;
-            tarefaExistente.Descricao = tarefaDto.Descricao;
-            tarefaExistente.Valor = tarefaDto.Valor;
-            tarefaExistente.Status = tarefaDto.Status;
-            tarefaExistente.IdUsuario = tarefaDto.IdUsuario;
-
-            try
-            {
-                _context.SaveChanges();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!_context.Tarefas.Any(e => e.Id == id))
-                {
-                    return NotFound();
-                }
-                throw;
-            }
-            return NoContent();
-        }
-
-        [HttpDelete("{id}")]
-        public IActionResult DeleteTarefa(int id)
-        {
-            var tarefa = _context.Tarefas.Find(id);
-
-            if (tarefa == null)
-            {
-                return NotFound();
-            }
-
-            _context.Remove(tarefa);
-            _context.SaveChanges();
-
-            return NoContent();
-
-        }
-
+        var task = await tasks.Query(id).FirstOrDefaultAsync(cancellationToken);
+        return task is null ? NotFound() : task;
     }
 
+    [HttpPost]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<TaskResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<TaskResponse>> CreateTask(TaskRequest request, CancellationToken cancellationToken)
+    {
+        var task = await tasks.CreateAsync(request, cancellationToken);
+        return task is null
+            ? Problem(statusCode: StatusCodes.Status404NotFound, title: "The specified user was not found.")
+            : CreatedAtAction(nameof(GetTask), new { id = task.Id }, task);
+    }
+
+    [HttpPut("{id:int}")]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateTask(int id, TaskRequest request, CancellationToken cancellationToken)
+    {
+        var result = await tasks.UpdateAsync(id, request, cancellationToken);
+        return result switch
+        {
+            TaskUpdateResult.TaskMissing => NotFound(),
+            TaskUpdateResult.OwnerMissing =>
+                Problem(statusCode: StatusCodes.Status404NotFound, title: "The specified user was not found."),
+            _ => NoContent()
+        };
+    }
+
+    [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteTask(int id, CancellationToken cancellationToken)
+    {
+        var task = await database.Tarefas.FindAsync([id], cancellationToken);
+        if (task is not null)
+        {
+            database.Tarefas.Remove(task);
+            await database.SaveChangesAsync(cancellationToken);
+        }
+
+        return NoContent();
+    }
 }
