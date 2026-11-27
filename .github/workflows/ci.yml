@@ -28,7 +28,7 @@ jobs:
           echo "::add-mask::$MSSQL_SA_PASSWORD"
           sql=$(docker run --detach --rm -p 127.0.0.1:11433:1433 \
             -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD \
-            mcr.microsoft.com/mssql/server@sha256:e10cd49443c94dbdcb7a050987db22ff4d8c87052ac53768abe1ed848d3fcef6)
+            mcr.microsoft.com/mssql/server:2022-CU28-ubuntu-22.04)
           trap 'docker stop "$sql" >/dev/null' EXIT
           ready() {
             docker exec "$sql" bash -c 'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -l 2 -b -Q "SELECT 1"' >/dev/null 2>&1
