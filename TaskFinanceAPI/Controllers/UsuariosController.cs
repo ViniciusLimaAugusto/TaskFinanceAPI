@@ -1,110 +1,89 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TaskFinanceAPI.Data;
 using TaskFinanceAPI.DTOs;
 using TaskFinanceAPI.Models;
+using ApiTaskStatus = TaskFinanceAPI.DTOs.TaskStatus;
 
-namespace TaskFinanceAPI.Controllers
+namespace TaskFinanceAPI.Controllers;
+
+[ApiController]
+[Route("api/Usuarios")]
+public class UsuariosController(AppDbContext database) : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class UsuariosController : ControllerBase
+    [HttpGet]
+    public async Task<ActionResult<List<UserResponse>>> GetUsers(CancellationToken cancellationToken) =>
+        await QueryUsers().ToListAsync(cancellationToken);
+
+    [HttpGet("{id:int}")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<UserResponse>> GetUser(int id, CancellationToken cancellationToken)
     {
-        private readonly AppDbContext _context;
-        public UsuariosController(AppDbContext context) { _context = context; }
+        var user = await QueryUsers(id).FirstOrDefaultAsync(cancellationToken);
+        return user is null ? NotFound() : user;
+    }
 
+    [HttpPost]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<UserResponse>(StatusCodes.Status201Created)]
+    public async Task<ActionResult<UserResponse>> CreateUser(
+        UserRequest request, CancellationToken cancellationToken)
+    {
+        var user = new Usuario { Nome = request.Name, Saldo = request.Balance };
+        database.Usuarios.Add(user);
+        await database.SaveChangesAsync(cancellationToken);
+        return CreatedAtAction(nameof(GetUser), new { id = user.Id },
+            new UserResponse(user.Id, user.Nome, user.Saldo, []));
+    }
 
-        [HttpGet]
-        public ActionResult<IEnumerable<Usuario>> GetUsers()
+    [HttpPut("{id:int}")]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateUser(int id, UserRequest request, CancellationToken cancellationToken)
+    {
+        var user = await database.Usuarios.FindAsync([id], cancellationToken);
+        if (user is null)
         {
-            return _context.Usuarios.ToList();
+            return NotFound();
         }
 
-        [HttpGet("{id}")]
-        public ActionResult<Usuario> GetUser(int id)
+        user.Nome = request.Name;
+        user.Saldo = request.Balance;
+        await database.SaveChangesAsync(cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteUser(int id, CancellationToken cancellationToken)
+    {
+        var user = await database.Usuarios.FindAsync([id], cancellationToken);
+        if (user is not null)
         {
-            var user = _context.Usuarios.Find(id);
-            user.Tarefas = _context.Tarefas.Where(t => t.IdUsuario == id).ToList();
-
-            if (user == null)
-            {
-                return NotFound();
-            }
-
-            return user;
+            database.Usuarios.Remove(user);
+            await database.SaveChangesAsync(cancellationToken);
         }
 
-        [HttpPost]
-        public ActionResult<Usuario> PostUser([FromBody] UsuarioDTO userDTO)
+        return NoContent();
+    }
+
+    private IQueryable<UserResponse> QueryUsers(int? id = null)
+    {
+        var query = database.Usuarios.AsNoTracking();
+        if (id is int userId)
         {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var user = new Usuario
-            {
-                Nome = userDTO.Nome,
-                Saldo = userDTO.Saldo,
-            };
-
-            _context.Add(user);
-            _context.SaveChanges();
-
-            return CreatedAtAction(nameof(GetUser), new { id = user.Id }, user);
+            query = query.Where(user => user.Id == userId);
         }
 
-        [HttpPut("{id}")]
-        public IActionResult PutUser(int id, [FromBody] UsuarioDTO userDTO)
-        {
-
-            if (userDTO == null)
-            {
-                return BadRequest();
-            }
-
-            var userExistente = _context.Usuarios.Find(id);
-
-            if (userExistente == null)
-            {
-                return NotFound();
-            }
-
-            userExistente.Nome = userDTO.Nome;
-            userExistente.Saldo = userDTO.Saldo;
-
-            try
-            {
-                _context.SaveChanges();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!_context.Usuarios.Any(e => e.Id == id))
-                {
-                    return NotFound();
-                }
-                throw;
-            }
-            return NoContent();
-        }
-
-        [HttpDelete("{id}")]
-        public IActionResult DeleteUser(int id)
-        {
-            var user = _context.Usuarios.Find(id);
-
-            if (user == null)
-            {
-                return NoContent();
-            }
-
-            _context.Remove(user);
-            _context.SaveChanges();
-
-            return NoContent();
-        }
-
-
+        return query.OrderBy(user => user.Id)
+            .Select(user => new UserResponse(user.Id, user.Nome, user.Saldo,
+                user.Tarefas.OrderBy(task => task.Id)
+                    .Select(task => new TaskResponse(task.Id, task.Nome, task.Descricao,
+                        task.Data, task.Valor, task.IdUsuario,
+                        task.Concluida ? ApiTaskStatus.Completed : ApiTaskStatus.Pending))
+                    .ToList()));
     }
 }
-
